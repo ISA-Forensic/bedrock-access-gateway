@@ -1,5 +1,5 @@
 import time
-from typing import Iterable, Literal
+from typing import Iterable, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -9,23 +9,25 @@ from api.setting import DEFAULT_MODEL
 class Model(BaseModel):
     id: str
     created: int = Field(default_factory=lambda: int(time.time()))
-    object: str | None = "model"
-    owned_by: str | None = "bedrock"
+    object: str = "model"
+    owned_by: str = "bedrock"
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class Models(BaseModel):
-    object: str | None = "list"
-    data: list[Model] = []
+    object: str = "list"
+    data: List[Model] = []
 
 
 class ResponseFunction(BaseModel):
-    name: str | None = None
+    name: Optional[str] = None
     arguments: str
 
 
 class ToolCall(BaseModel):
-    index: int | None = None
-    id: str | None = None
+    index: Optional[int] = None
+    id: Optional[str] = None
     type: Literal["function"] = "function"
     function: ResponseFunction
 
@@ -37,7 +39,7 @@ class TextContent(BaseModel):
 
 class ImageUrl(BaseModel):
     url: str
-    detail: str | None = "auto"
+    detail: Optional[str] = "auto"
 
 
 class ImageContent(BaseModel):
@@ -46,22 +48,22 @@ class ImageContent(BaseModel):
 
 
 class SystemMessage(BaseModel):
-    name: str | None = None
+    name: Optional[str] = None
     role: Literal["system"] = "system"
     content: str
 
 
 class UserMessage(BaseModel):
-    name: str | None = None
+    name: Optional[str] = None
     role: Literal["user"] = "user"
-    content: str | list[TextContent | ImageContent]
+    content: Union[str, List[Union[TextContent, ImageContent]]]
 
 
 class AssistantMessage(BaseModel):
-    name: str | None = None
+    name: Optional[str] = None
     role: Literal["assistant"] = "assistant"
-    content: str | list[TextContent | ImageContent] | None = None
-    tool_calls: list[ToolCall] | None = None
+    content: Optional[Union[str, List[Union[TextContent, ImageContent]]]] = None
+    tool_calls: Optional[List[ToolCall]] = None
 
 
 class ToolMessage(BaseModel):
@@ -72,7 +74,7 @@ class ToolMessage(BaseModel):
 
 class Function(BaseModel):
     name: str
-    description: str | None = None
+    description: Optional[str] = None
     parameters: object
 
 
@@ -86,22 +88,22 @@ class StreamOptions(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    messages: list[SystemMessage | UserMessage | AssistantMessage | ToolMessage]
+    messages: List[Union[SystemMessage, UserMessage, AssistantMessage, ToolMessage]]
     model: str = DEFAULT_MODEL
-    frequency_penalty: float | None = Field(default=0.0, le=2.0, ge=-2.0)  # Not used
-    presence_penalty: float | None = Field(default=0.0, le=2.0, ge=-2.0)  # Not used
-    stream: bool | None = False
-    stream_options: StreamOptions | None = None
-    temperature: float | None = Field(default=1.0, le=2.0, ge=0.0)
-    top_p: float | None = Field(default=1.0, le=1.0, ge=0.0)
-    user: str | None = None  # Not used
-    max_tokens: int | None = 2048
-    max_completion_tokens: int | None = None
-    reasoning_effort: Literal["low", "medium", "high"] | None = None
-    n: int | None = 1  # Not used
-    tools: list[Tool] | None = None
-    tool_choice: str | object = "auto"
-    stop: list[str] | str | None = None
+    frequency_penalty: Optional[float] = Field(default=0.0, le=2.0, ge=-2.0)  # Not used
+    presence_penalty: Optional[float] = Field(default=0.0, le=2.0, ge=-2.0)  # Not used
+    stream: Optional[bool] = False
+    stream_options: Optional[StreamOptions] = None
+    temperature: Optional[float] = Field(default=1.0, le=2.0, ge=0.0)
+    top_p: Optional[float] = Field(default=1.0, le=1.0, ge=0.0)
+    user: Optional[str] = None  # Not used
+    max_tokens: Optional[int] = 2048
+    max_completion_tokens: Optional[int] = None
+    reasoning_effort: Optional[Literal["low", "medium", "high"]] = None
+    n: Optional[int] = 1  # Not used
+    tools: Optional[List[Tool]] = None
+    tool_choice: Union[str, object] = "auto"
+    stop: Optional[Union[List[str], str]] = None
 
 
 class Usage(BaseModel):
@@ -112,16 +114,16 @@ class Usage(BaseModel):
 
 class ChatResponseMessage(BaseModel):
     # tool_calls
-    role: Literal["assistant"] | None = None
-    content: str | None = None
-    tool_calls: list[ToolCall] | None = None
-    reasoning_content: str | None = None
+    role: Optional[Literal["assistant"]] = None
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+    reasoning_content: Optional[str] = None
 
 
 class BaseChoice(BaseModel):
-    index: int | None = 0
-    finish_reason: str | None = None
-    logprobs: dict | None = None
+    index: Optional[int] = 0
+    finish_reason: Optional[str] = None
+    logprobs: Optional[dict] = None
 
 
 class Choice(BaseChoice):
@@ -141,28 +143,28 @@ class BaseChatResponse(BaseModel):
 
 
 class ChatResponse(BaseChatResponse):
-    choices: list[Choice]
+    choices: List[Choice]
     object: Literal["chat.completion"] = "chat.completion"
     usage: Usage
 
 
 class ChatStreamResponse(BaseChatResponse):
-    choices: list[ChoiceDelta]
+    choices: List[ChoiceDelta]
     object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
-    usage: Usage | None = None
+    usage: Optional[Usage] = None
 
 
 class EmbeddingsRequest(BaseModel):
-    input: str | list[str] | Iterable[int | Iterable[int]]
+    input: Union[str, List[str], Iterable[Union[int, Iterable[int]]]]
     model: str
     encoding_format: Literal["float", "base64"] = "float"
-    dimensions: int | None = None  # not used.
-    user: str | None = None  # not used.
+    dimensions: Optional[int] = None  # not used.
+    user: Optional[str] = None  # not used.
 
 
 class Embedding(BaseModel):
     object: Literal["embedding"] = "embedding"
-    embedding: list[float] | bytes
+    embedding: Union[List[float], bytes]
     index: int
 
 
@@ -173,7 +175,7 @@ class EmbeddingsUsage(BaseModel):
 
 class EmbeddingsResponse(BaseModel):
     object: Literal["list"] = "list"
-    data: list[Embedding]
+    data: List[Embedding]
     model: str
     usage: EmbeddingsUsage
 

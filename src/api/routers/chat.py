@@ -1,4 +1,7 @@
-from typing import Annotated
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
 
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import StreamingResponse
@@ -16,7 +19,7 @@ router = APIRouter(
 
 
 @router.post(
-    "/completions", response_model=ChatResponse | ChatStreamResponse | Error, response_model_exclude_unset=True
+    "/completions", response_model_exclude_unset=True
 )
 async def chat_completions(
     chat_request: Annotated[

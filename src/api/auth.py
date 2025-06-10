@@ -1,6 +1,9 @@
 import json
 import os
-from typing import Annotated
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
 
 import boto3
 from botocore.exceptions import ClientError

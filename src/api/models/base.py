@@ -1,7 +1,7 @@
 import time
 import uuid
 from abc import ABC, abstractmethod
-from typing import AsyncIterable
+from typing import AsyncIterable, List, Union
 
 from api.schema import (
     # Chat
@@ -21,7 +21,7 @@ class BaseChatModel(ABC):
     Currently, only Bedrock model is supported, but may be used for SageMaker models if needed.
     """
 
-    def list_models(self) -> list[str]:
+    def list_models(self) -> List[str]:
         """Return a list of supported models"""
         return []
 
@@ -44,7 +44,7 @@ class BaseChatModel(ABC):
         return "chatcmpl-" + str(uuid.uuid4())[:8]
 
     @staticmethod
-    def stream_response_to_bytes(response: ChatStreamResponse | Error | None = None) -> bytes:
+    def stream_response_to_bytes(response: Union[ChatStreamResponse, Error, None] = None) -> bytes:
         if isinstance(response, Error):
             data = response.model_dump_json()
         elif isinstance(response, ChatStreamResponse):

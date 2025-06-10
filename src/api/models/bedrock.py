@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from abc import ABC
-from typing import AsyncIterable, Iterable, Literal
+from typing import AsyncIterable, Iterable, List, Literal, Optional, Tuple, Union
 
 import boto3
 import numpy as np
@@ -39,6 +39,7 @@ from api.schema import (
     UserMessage,
 )
 from api.setting import AWS_REGION, DEBUG, DEFAULT_MODEL, ENABLE_CROSS_REGION_INFERENCE
+from api.config_manager import get_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -124,22 +125,22 @@ def list_bedrock_models() -> dict:
     return model_list
 
 
-# Initialize the model list.
-bedrock_model_list = list_bedrock_models()
+# Initialize empty model list - now using config file instead
+bedrock_model_list = {}
 
 
 class BedrockModel(BaseChatModel):
-    def list_models(self) -> list[str]:
-        """Always refresh the latest model list"""
-        global bedrock_model_list
-        bedrock_model_list = list_bedrock_models()
-        return list(bedrock_model_list.keys())
+    def list_models(self) -> List[str]:
+        """Get model list from config file"""
+        config_manager = get_config_manager()
+        return config_manager.get_model_ids()
 
     def validate(self, chat_request: ChatRequest):
         """Perform basic validation on requests"""
         error = ""
         # check if model is supported
-        if chat_request.model not in bedrock_model_list.keys():
+        config_manager = get_config_manager()
+        if not config_manager.is_model_supported(chat_request.model):
             error = f"Unsupported model {chat_request.model}, please use models API to get a list of supported models"
 
         if error:
@@ -235,7 +236,7 @@ class BedrockModel(BaseChatModel):
             error_event = Error(error=ErrorMessage(message=str(e)))
             yield self.stream_response_to_bytes(error_event)
 
-    def _parse_system_prompts(self, chat_request: ChatRequest) -> list[dict[str, str]]:
+    def _parse_system_prompts(self, chat_request: ChatRequest) -> List[dict]:
         """Create system prompts.
         Note that not all models support system prompts.
 
@@ -255,7 +256,7 @@ class BedrockModel(BaseChatModel):
 
         return system_prompts
 
-    def _parse_messages(self, chat_request: ChatRequest) -> list[dict]:
+    def _parse_messages(self, chat_request: ChatRequest) -> List[dict]:
         """
         Converse API only support user and assistant messages.
 
@@ -326,7 +327,7 @@ class BedrockModel(BaseChatModel):
                 continue
         return self._reframe_multi_payloard(messages)
 
-    def _reframe_multi_payloard(self, messages: list) -> list:
+    def _reframe_multi_payloard(self, messages: List[dict]) -> List[dict]:
         """Receive messages and reformat them to comply with the Claude format
 
         With OpenAI format requests, it's not a problem to repeatedly receive messages from the same role, but
@@ -446,8 +447,8 @@ class BedrockModel(BaseChatModel):
         self,
         model: str,
         message_id: str,
-        content: list[dict] | None = None,
-        finish_reason: str | None = None,
+        content: Optional[List[dict]] = None,
+        finish_reason: Optional[str] = None,
         input_tokens: int = 0,
         output_tokens: int = 0,
     ) -> ChatResponse:
@@ -504,7 +505,7 @@ class BedrockModel(BaseChatModel):
         response.created = int(time.time())
         return response
 
-    def _create_response_stream(self, model_id: str, message_id: str, chunk: dict) -> ChatStreamResponse | None:
+    def _create_response_stream(self, model_id: str, message_id: str, chunk: dict) -> Optional[ChatStreamResponse]:
         """Parsing the Bedrock stream response chunk.
 
         Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html#message-inference-examples
@@ -601,7 +602,7 @@ class BedrockModel(BaseChatModel):
 
         return None
 
-    def _parse_image(self, image_url: str) -> tuple[bytes, str]:
+    def _parse_image(self, image_url: str) -> Tuple[bytes, str]:
         """Try to get the raw data from an image url.
 
         Ref: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageSource.html
@@ -630,9 +631,9 @@ class BedrockModel(BaseChatModel):
 
     def _parse_content_parts(
         self,
-        message: UserMessage | AssistantMessage,
+        message: Union[UserMessage, AssistantMessage],
         model_id: str,
-    ) -> list[dict]:
+    ) -> List[dict]:
         if isinstance(message.content, str):
             return [
                 {
@@ -669,8 +670,11 @@ class BedrockModel(BaseChatModel):
 
     @staticmethod
     def is_supported_modality(model_id: str, modality: str = "IMAGE") -> bool:
-        model = bedrock_model_list.get(model_id, {})
-        modalities = model.get("modalities", [])
+        config_manager = get_config_manager()
+        model_config = config_manager.get_model_by_id(model_id)
+        if not model_config:
+            return False
+        modalities = model_config.get("modalities", [])
         if modality in modalities:
             return True
         return False
@@ -698,7 +702,7 @@ class BedrockModel(BaseChatModel):
         else:
             return max_tokens - 1
 
-    def _convert_finish_reason(self, finish_reason: str | None) -> str | None:
+    def _convert_finish_reason(self, finish_reason: Optional[str]) -> Optional[str]:
         """
         Below is a list of finish reason according to OpenAI doc:
 
@@ -749,7 +753,7 @@ class BedrockEmbeddingsModel(BaseEmbeddingsModel, ABC):
 
     def _create_response(
         self,
-        embeddings: list[float],
+        embeddings: List[float],
         model: str,
         input_tokens: int = 0,
         output_tokens: int = 0,
@@ -857,14 +861,14 @@ def get_embeddings_model(model_id: str) -> BedrockEmbeddingsModel:
     model_name = SUPPORTED_BEDROCK_EMBEDDING_MODELS.get(model_id, "")
     if DEBUG:
         logger.info("model name is " + model_name)
-    match model_name:
-        case "Cohere Embed Multilingual" | "Cohere Embed English":
-            return CohereEmbeddingsModel()
-        case "Titan Embeddings G2 - Text":
-            return TitanEmbeddingsModel()
-        case _:
-            logger.error("Unsupported model id " + model_id)
-            raise HTTPException(
-                status_code=400,
-                detail="Unsupported embedding model id " + model_id,
-            )
+    
+    if model_name in ["Cohere Embed Multilingual", "Cohere Embed English"]:
+        return CohereEmbeddingsModel()
+    elif model_name == "Titan Embeddings G2 - Text":
+        return TitanEmbeddingsModel()
+    else:
+        logger.error("Unsupported model id " + model_id)
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported embedding model id " + model_id,
+        )

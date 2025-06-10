@@ -20,6 +20,23 @@ class Models(BaseModel):
     data: List[Model] = []
 
 
+class KnowledgeBase(BaseModel):
+    id: str
+    created: int = Field(default_factory=lambda: int(time.time()))
+    object: str = "knowledge_base"
+    name: Optional[str] = None
+    description: Optional[str] = None
+    knowledge_base_id: Optional[str] = None
+    enabled: bool = True
+    num_results: Optional[int] = 5
+    search_type: Optional[str] = "HYBRID"
+
+
+class KnowledgeBases(BaseModel):
+    object: str = "list"
+    data: List[KnowledgeBase] = []
+
+
 class ResponseFunction(BaseModel):
     name: Optional[str] = None
     arguments: str

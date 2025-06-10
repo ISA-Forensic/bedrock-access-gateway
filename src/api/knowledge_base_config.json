@@ -1,0 +1,19 @@
+{
+  "knowledge_bases": [
+    {
+      "id": "default-kb",
+      "name": "Default Knowledge Base",
+        "knowledge_base_id": "PLD6ZMTYSU",
+        "num_results": 5,
+      "search_type": "HYBRID",
+      "max_workers": 3,
+      "enabled": true
+    }
+  ],
+  "default_settings": {
+    "num_results": 5,
+    "search_type": "HYBRID",
+    "max_workers": 3,
+    "system_prompt": "You are a helpful assistant. Analyze the documents provided and answer the user's question based only on the information. If the answer cannot be found, say you don't have that info."
+  }
+} 

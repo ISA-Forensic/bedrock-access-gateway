@@ -25,3 +25,6 @@ USE_GATEWAY = os.environ.get("USE_GATEWAY", "true").lower() == "true"
 # Knowledge base configuration
 KB_CONFIG_PATH = os.environ.get("KB_CONFIG_PATH")
 USE_KNOWLEDGE_BASE = os.environ.get("USE_KNOWLEDGE_BASE", "true").lower() == "true"
+
+UI_USERNAME = os.environ.get("UI_USERNAME", "admin")
+UI_PASSWORD = os.environ.get("UI_PASSWORD", "password")

@@ -7,8 +7,9 @@ except ImportError:
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from typing import Optional
 
 from api.setting import DEFAULT_API_KEYS
 
@@ -37,11 +38,32 @@ else:
     # For local use only.
     api_key = DEFAULT_API_KEYS
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def api_key_auth(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+    x_api_key: Annotated[Optional[str], Header(alias="x-api-key")] = None,
 ):
-    if credentials.credentials != api_key:
+    """
+    Flexible API key authentication that supports both:
+    - Bearer token: Authorization: Bearer <token>
+    - Header key: x-api-key: <token>
+    """
+    token = None
+    
+    # Try Bearer token first
+    if credentials and credentials.credentials:
+        token = credentials.credentials
+    # Fall back to x-api-key header
+    elif x_api_key:
+        token = x_api_key
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="API key required. Use 'Authorization: Bearer <key>' or 'x-api-key: <key>' header"
+        )
+    
+    if token != api_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")

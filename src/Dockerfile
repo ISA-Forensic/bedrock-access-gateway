@@ -6,7 +6,8 @@ COPY ./requirements.txt /app/requirements.txt
 
 RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
 
-COPY ./api /app/api
+# Copy source including static UI
+COPY . /app
 
 ENV PORT=80
 

@@ -88,6 +88,48 @@ class KnowledgeBaseConfigManager:
         enabled_kbs = self.get_enabled_knowledge_bases()
         return [kb.get("id") for kb in enabled_kbs if kb.get("id")]
 
+    def _save_config(self):
+        """Persist the current cache to disk."""
+        if self._config_cache is None:
+            return
+        try:
+            with open(self.config_path, "w") as f:
+                json.dump(self._config_cache, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving knowledge base config: {e}")
+
+    def add_knowledge_base(self, kb: Dict) -> Dict:
+        """Add a new knowledge base configuration."""
+        config = self.get_config()
+        knowledge_bases = config.setdefault("knowledge_bases", [])
+        if any(existing.get("id") == kb.get("id") for existing in knowledge_bases):
+            raise ValueError(f"Knowledge base with id '{kb.get('id')}' already exists")
+        knowledge_bases.append(kb)
+        self._save_config()
+        return kb
+
+    def update_knowledge_base(self, kb_id: str, kb: Dict) -> Dict:
+        """Update an existing knowledge base by id."""
+        config = self.get_config()
+        knowledge_bases = config.get("knowledge_bases", [])
+        for index, existing in enumerate(knowledge_bases):
+            if existing.get("id") == kb_id:
+                # Merge fields
+                knowledge_bases[index] = {**existing, **kb, "id": kb_id}
+                self._save_config()
+                return knowledge_bases[index]
+        raise ValueError(f"Knowledge base '{kb_id}' not found")
+
+    def delete_knowledge_base(self, kb_id: str):
+        """Delete a knowledge base by id."""
+        config = self.get_config()
+        knowledge_bases = config.get("knowledge_bases", [])
+        new_list = [kb for kb in knowledge_bases if kb.get("id") != kb_id]
+        if len(new_list) == len(knowledge_bases):
+            raise ValueError(f"Knowledge base '{kb_id}' not found")
+        config["knowledge_bases"] = new_list
+        self._save_config()
+
 
 # Global instance - will be initialized when first imported
 kb_config_manager = None

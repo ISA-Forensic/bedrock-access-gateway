@@ -6,8 +6,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from mangum import Mangum
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
-from api.routers import chat, embeddings, model, knowledge_base
+from api.routers import chat, embeddings, model, knowledge_base, auth_ui
 from api.setting import API_ROUTE_PREFIX, DESCRIPTION, SUMMARY, TITLE, VERSION
 
 config = {
@@ -36,6 +38,11 @@ app.include_router(model.router, prefix=API_ROUTE_PREFIX)
 app.include_router(chat.router, prefix=API_ROUTE_PREFIX)
 app.include_router(embeddings.router, prefix=API_ROUTE_PREFIX)
 app.include_router(knowledge_base.router, prefix=API_ROUTE_PREFIX)
+app.include_router(auth_ui.router, prefix=API_ROUTE_PREFIX)
+
+# Serve static simple UI
+static_dir = Path(__file__).parent / "static"
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 
 @app.get("/health")

@@ -83,6 +83,52 @@ class ConfigManager:
         all_models = self.get_all_models()
         return [model.get("id") for model in all_models if model.get("id")]
 
+    def _save_config(self):
+        """Persist the current cache to disk."""
+        if self._config_cache is None:
+            return
+        try:
+            with open(self.config_path, "w") as f:
+                json.dump(self._config_cache, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving model config: {e}")
+
+    # ----- CRUD for models -----
+    def add_model(self, model: Dict) -> Dict:
+        """Add a chat or embedding model."""
+        config = self.get_config()
+        all_models = self.get_all_models()
+        if any(m.get("id") == model.get("id") for m in all_models):
+            raise ValueError(f"Model with id '{model.get('id')}' already exists")
+        # Decide list based on whether id contains ':embedding' maybe? Simpler: use models list by default.
+        config.setdefault("models", []).append(model)
+        self._save_config()
+        return model
+
+    def update_model(self, model_id: str, model: Dict) -> Dict:
+        config = self.get_config()
+        for key in ("models", "embedding_models"):
+            models_list = config.get(key, [])
+            for idx, existing in enumerate(models_list):
+                if existing.get("id") == model_id:
+                    models_list[idx] = {**existing, **model, "id": model_id}
+                    self._save_config()
+                    return models_list[idx]
+        raise ValueError(f"Model '{model_id}' not found")
+
+    def delete_model(self, model_id: str):
+        config = self.get_config()
+        changed = False
+        for key in ("models", "embedding_models"):
+            models_list = config.get(key, [])
+            new_list = [m for m in models_list if m.get("id") != model_id]
+            if len(new_list) != len(models_list):
+                config[key] = new_list
+                changed = True
+        if not changed:
+            raise ValueError(f"Model '{model_id}' not found")
+        self._save_config()
+
 
 # Global instance - will be initialized when first imported
 config_manager = None

@@ -67,3 +67,42 @@ async def reload_models_config():
     config_manager = get_config_manager()
     config_manager.reload_config()
     return {"message": "Models configuration reloaded successfully"}
+
+
+@router.post("", response_model=Model, status_code=201)
+async def create_model(model: Model):
+    """Add a new model configuration"""
+    config_manager = get_config_manager()
+    try:
+        created = config_manager.add_model(model.dict(exclude_none=True))
+        return Model(**created)
+    except ValueError as ve:
+        raise HTTPException(status_code=409, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{model_id}", response_model=Model)
+async def update_model(model_id: str, model: Model):
+    """Update an existing model"""
+    config_manager = get_config_manager()
+    try:
+        updated = config_manager.update_model(model_id, model.dict(exclude_none=True))
+        return Model(**updated)
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{model_id}")
+async def delete_model(model_id: str):
+    """Delete a model configuration"""
+    config_manager = get_config_manager()
+    try:
+        config_manager.delete_model(model_id)
+        return {"status": "success"}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

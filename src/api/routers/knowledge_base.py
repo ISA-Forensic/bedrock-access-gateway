@@ -5,7 +5,7 @@ except ImportError:
     from typing_extensions import Annotated
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Body
 
 from api.auth import api_key_auth
 from api.kb_config_manager import get_kb_config_manager
@@ -126,4 +126,60 @@ async def reload_knowledge_base_config() -> Dict[str, str]:
         }
     except Exception as e:
         logger.error(f"Error reloading knowledge base config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/knowledge-bases", response_model=KnowledgeBase, status_code=201)
+async def create_knowledge_base(kb: KnowledgeBase):
+    """Create a new knowledge base entry"""
+    kb_manager = get_kb_config_manager()
+    try:
+        created = kb_manager.add_knowledge_base(kb.dict(exclude_none=True))
+        return KnowledgeBase(**created)
+    except ValueError as ve:
+        raise HTTPException(status_code=409, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error creating knowledge base: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/knowledge-bases/{kb_id}", response_model=KnowledgeBase)
+async def update_knowledge_base(kb_id: str, kb: KnowledgeBase):
+    """Update an existing knowledge base"""
+    kb_manager = get_kb_config_manager()
+    try:
+        updated = kb_manager.update_knowledge_base(kb_id, kb.dict(exclude_none=True))
+        return KnowledgeBase(**updated)
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error updating knowledge base {kb_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/knowledge-bases/{kb_id}")
+async def delete_knowledge_base(kb_id: str):
+    """Delete a knowledge base"""
+    kb_manager = get_kb_config_manager()
+    try:
+        kb_manager.delete_knowledge_base(kb_id)
+        return {"status": "success"}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error deleting knowledge base {kb_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/knowledge-bases/settings/default")
+async def update_default_settings(settings: Dict = Body(...)):
+    """Update default knowledge base settings"""
+    kb_manager = get_kb_config_manager()
+    try:
+        config = kb_manager.get_config()
+        config["default_settings"] = {**config.get("default_settings", {}), **settings}
+        kb_manager._save_config()  # type: ignore
+        return config["default_settings"]
+    except Exception as e:
+        logger.error(f"Error updating default settings: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 

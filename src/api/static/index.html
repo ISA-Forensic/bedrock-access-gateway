@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bedrock Gateway Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 1rem; }
+    header { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); color: #fff; padding: 1rem 0; box-shadow: 0 2px 20px rgba(0,0,0,0.1); }
+    header h2 { margin: 0; font-weight: 600; }
+    nav { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    nav button { padding: 0.75rem 1.5rem; border: none; background: rgba(255,255,255,0.2); color: #fff; border-radius: 25px; cursor: pointer; font-weight: 500; transition: all 0.3s ease; backdrop-filter: blur(10px); }
+    nav button:hover { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
+    nav button.active { background: rgba(255,255,255,0.4); }
+    .main-content { padding: 2rem 0; }
+    .content-section { background: #fff; border-radius: 16px; padding: 2rem; margin-bottom: 2rem; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .section-title { font-size: 1.5rem; font-weight: 600; color: #2d3748; margin: 0; }
+    .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; transition: all 0.3s ease; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+    .btn-danger { background: #e53e3e; color: #fff; }
+    .btn-danger:hover { background: #c53030; transform: translateY(-2px); }
+    .btn-secondary { background: #edf2f7; color: #4a5568; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    table { border-collapse: collapse; width: 100%; background:#fff; border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.1); }
+    thead tr { background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); }
+    th { font-weight: 600; color: #2d3748; padding: 1rem 0.75rem; border: none; }
+    td { padding: 0.75rem; border: none; border-bottom: 1px solid #e2e8f0; }
+    tbody tr:hover { background: #f7fafc; }
+    .hidden { display: none !important; }
+    .error { color: #e53e3e; background: #fed7d7; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
+    .form-section { background: #f7fafc; padding: 1.5rem; border-radius: 12px; }
+    .form-title { font-size: 1.25rem; font-weight: 600; color: #2d3748; margin-bottom: 1.5rem; }
+    label { display: block; margin-bottom: 1rem; font-weight: 500; color: #4a5568; }
+    input, select, textarea { 
+      width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 8px; 
+      font-size: 0.875rem; transition: all 0.3s ease; background: #fff;
+    }
+    input:focus, select:focus, textarea:focus { 
+      outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); 
+    }
+    .login-container { 
+      display: flex; align-items: center; justify-content: center; min-height: 100vh; 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .login-card { 
+      background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); 
+      padding: 3rem; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); 
+      width: 100%; max-width: 400px; text-align: center;
+    }
+    .login-title { font-size: 2rem; font-weight: 600; color: #2d3748; margin-bottom: 2rem; }
+    .login-icon { font-size: 3rem; color: #667eea; margin-bottom: 1rem; }
+    @media (max-width: 768px) {
+      .container { padding: 0 0.5rem; }
+      .content-section { padding: 1rem; }
+      .form-grid { grid-template-columns: 1fr; }
+      nav { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h2><i class="fas fa-cloud"></i> Bedrock Access Gateway</h2>
+      <nav id="mainNav" class="hidden">
+        <button data-view="kbView"><i class="fas fa-database"></i> Knowledge Bases</button>
+        <button data-view="modelView"><i class="fas fa-robot"></i> Models</button>
+        <button data-view="settingsView"><i class="fas fa-cog"></i> KB Default Settings</button>
+        <button id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Login Screen -->
+  <div id="loginSection" class="login-container">
+    <div class="login-card">
+      <div class="login-icon"><i class="fas fa-lock"></i></div>
+      <h3 class="login-title">Sign In</h3>
+      <div class="error hidden" id="loginError"></div>
+      <label>Username <input id="username" placeholder="Enter username" /></label>
+      <label>Password <input type="password" id="password" placeholder="Enter password" /></label>
+      <button id="loginBtn" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
+        <i class="fas fa-sign-in-alt"></i> Sign In
+      </button>
+    </div>
+  </div>
+
+  <!-- Dashboard Screen -->
+  <div id="dashboardSection" class="hidden">
+    <div class="main-content">
+      <div class="container">
+
+        <!-- Knowledge Bases View -->
+        <div id="kbView" class="content-section">
+          <div class="section-header">
+            <h3 class="section-title"><i class="fas fa-database"></i> Knowledge Bases</h3>
+            <button id="kbRefresh" class="btn btn-secondary"><i class="fas fa-sync-alt"></i> Refresh</button>
+          </div>
+          
+          <div class="form-grid">
+            <div class="form-section">
+              <h4 class="form-title">Add / Update Knowledge Base</h4>
+              <form id="kbForm">
+                <label>ID <input name="id" required placeholder="unique-kb-id" /></label>
+                <label>Name <input name="name" placeholder="Display name" /></label>
+                <label>Description <input name="description" placeholder="Brief description" /></label>
+                <label>Knowledge Base ID <input name="knowledge_base_id" placeholder="AWS KB ID" /></label>
+                <label>Num Results <input type="number" name="num_results" min="1" placeholder="5" /></label>
+                <label>Search Type <select name="search_type"><option value="HYBRID">HYBRID</option><option value="VECTOR">VECTOR</option><option value="KEYWORD">KEYWORD</option></select></label>
+                <label>Max Workers <input type="number" name="max_workers" min="1" placeholder="3" /></label>
+                <label>Enabled <select name="enabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></label>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save</button>
+              </form>
+            </div>
+          </div>
+          
+          <div style="margin-top: 2rem;">
+            <h4 class="form-title">Existing Knowledge Bases</h4>
+            <table id="kbTable">
+              <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Results</th><th>Type</th><th>Workers</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Models View -->
+        <div id="modelView" class="content-section hidden">
+          <div class="section-header">
+            <h3 class="section-title"><i class="fas fa-robot"></i> Models</h3>
+            <button id="modelRefresh" class="btn btn-secondary"><i class="fas fa-sync-alt"></i> Refresh</button>
+          </div>
+          
+          <div class="form-grid">
+            <div class="form-section">
+              <h4 class="form-title">Add / Update Model</h4>
+              <form id="modelForm">
+                <label>ID <input name="id" required placeholder="model-id" /></label>
+                <label>Name <input name="name" placeholder="Display name" /></label>
+                <label>Description <input name="description" placeholder="Model description" /></label>
+                <label>Owned By <input name="owned_by" placeholder="bedrock" /></label>
+                <label>Modalities <input name="modalities" placeholder="TEXT,IMAGE" /></label>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save</button>
+              </form>
+            </div>
+          </div>
+          
+          <div style="margin-top: 2rem;">
+            <h4 class="form-title">Existing Models</h4>
+            <table id="modelTable">
+              <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Owner</th><th>Modalities</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Default Settings View -->
+        <div id="settingsView" class="content-section hidden">
+          <div class="section-header">
+            <h3 class="section-title"><i class="fas fa-cog"></i> Default Knowledge Base Settings</h3>
+            <button id="settingsRefresh" class="btn btn-secondary"><i class="fas fa-sync-alt"></i> Refresh</button>
+          </div>
+          
+          <div class="form-grid">
+            <div class="form-section">
+              <h4 class="form-title">Global Defaults</h4>
+              <form id="settingsForm">
+                <label>Num Results <input type="number" name="num_results" min="1" placeholder="5" /></label>
+                <label>Search Type <select name="search_type"><option value="HYBRID">HYBRID</option><option value="VECTOR">VECTOR</option><option value="KEYWORD">KEYWORD</option></select></label>
+                <label>Max Workers <input type="number" name="max_workers" min="1" placeholder="3" /></label>
+                <label>System Prompt <textarea name="system_prompt" rows="6" placeholder="Default system prompt for knowledge base queries..."></textarea></label>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Settings</button>
+              </form>
+            </div>
+          </div>
+        </div>
+        
+      </div>
+    </div>
+  </div>
+
+<script>
+const API_BASE = '/api/v1';
+let apiKey = localStorage.getItem('api_key') || '';
+
+function setApiHeader(options={}) {
+  options.headers = options.headers || {};
+  if (apiKey) options.headers['Authorization'] = 'Bearer ' + apiKey;
+  options.headers['Content-Type'] = 'application/json';
+  return options;
+}
+
+async function login(username, password) {
+  const res = await fetch(`${API_BASE}/auth/login`, setApiHeader({
+    method: 'POST',
+    body: JSON.stringify({ username, password })
+  }));
+  if (!res.ok) throw new Error('Login failed');
+  const data = await res.json();
+  apiKey = data.api_key;
+  localStorage.setItem('api_key', apiKey);
+  console.log('Login successful, apiKey set, calling showDashboard');
+  showDashboard();
+}
+
+// ---------- KB operations ----------
+async function loadKBs() {
+  const res = await fetch(`${API_BASE}/knowledge-bases`, setApiHeader());
+  const data = await res.json();
+  const tbody = document.querySelector('#kbTable tbody');
+  tbody.innerHTML = '';
+  data.data.forEach(kb => {
+    const tr = document.createElement('tr');
+    const statusBadge = kb.enabled ? '<span style="background:#10b981;color:#fff;padding:0.25rem 0.5rem;border-radius:12px;font-size:0.75rem;">Enabled</span>' : '<span style="background:#ef4444;color:#fff;padding:0.25rem 0.5rem;border-radius:12px;font-size:0.75rem;">Disabled</span>';
+    tr.innerHTML = `<td>${kb.id}</td><td>${kb.name || ''}</td><td>${kb.description || ''}</td><td>${kb.num_results || ''}</td><td>${kb.search_type || ''}</td><td>${kb.max_workers || ''}</td><td>${statusBadge}</td>`;
+    const actionTd = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+    delBtn.className = 'btn btn-danger';
+    delBtn.style.padding = '0.5rem';
+    delBtn.onclick = () => deleteKB(kb.id);
+    actionTd.appendChild(delBtn);
+    tr.appendChild(actionTd);
+    tbody.appendChild(tr);
+  });
+}
+
+async function saveKB(formData) {
+  const id = formData.id.value.trim();
+  const payload = {
+    id,
+    name: formData.name.value,
+    description: formData.description.value,
+    knowledge_base_id: formData.knowledge_base_id.value,
+    ...(formData.num_results.value && { num_results: Number(formData.num_results.value) }),
+    ...(formData.search_type.value && { search_type: formData.search_type.value }),
+    ...(formData.max_workers.value && { max_workers: Number(formData.max_workers.value) }),
+    enabled: formData.enabled.value === 'true'
+  };
+  // Determine if exists -> PUT else POST
+  const existsRes = await fetch(`${API_BASE}/knowledge-bases/${id}`, setApiHeader());
+  const method = existsRes.ok ? 'PUT' : 'POST';
+  const url = method === 'POST' ? `${API_BASE}/knowledge-bases` : `${API_BASE}/knowledge-bases/${id}`;
+  await fetch(url, setApiHeader({ method, body: JSON.stringify(payload) }));
+  await loadKBs();
+}
+
+async function deleteKB(id) {
+  if (!confirm('Delete knowledge base ' + id + '?')) return;
+  await fetch(`${API_BASE}/knowledge-bases/${id}`, setApiHeader({ method: 'DELETE' }));
+  await loadKBs();
+}
+
+// ---------- Model operations ----------
+async function loadModels() {
+  const res = await fetch(`${API_BASE}/models`, setApiHeader());
+  const data = await res.json();
+  const tbody = document.querySelector('#modelTable tbody');
+  tbody.innerHTML = '';
+  data.data.forEach(m => {
+    const tr = document.createElement('tr');
+    const mods = Array.isArray(m.modalities) ? m.modalities.join(',') : (m.modalities || '');
+    tr.innerHTML = `<td>${m.id}</td><td>${m.name || ''}</td><td>${m.description || ''}</td><td>${m.owned_by}</td><td>${mods}</td>`;
+    const actionTd = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+    delBtn.className = 'btn btn-danger';
+    delBtn.style.padding = '0.5rem';
+    delBtn.onclick = () => deleteModel(m.id);
+    actionTd.appendChild(delBtn);
+    tr.appendChild(actionTd);
+    tbody.appendChild(tr);
+  });
+}
+
+async function saveModel(formData) {
+  const id = formData.id.value.trim();
+  const payload = {
+    id,
+    name: formData.name.value,
+    description: formData.description.value,
+    owned_by: formData.owned_by.value || 'bedrock',
+    modalities: formData.modalities.value ? formData.modalities.value.split(',').map(m => m.trim()) : []
+  };
+  const existsRes = await fetch(`${API_BASE}/models/${id}`, setApiHeader());
+  const method = existsRes.ok ? 'PUT' : 'POST';
+  const url = method === 'POST' ? `${API_BASE}/models` : `${API_BASE}/models/${id}`;
+  await fetch(url, setApiHeader({ method, body: JSON.stringify(payload) }));
+  await loadModels();
+}
+
+async function deleteModel(id) {
+  if (!confirm('Delete model ' + id + '?')) return;
+  await fetch(`${API_BASE}/models/${id}`, setApiHeader({ method: 'DELETE' }));
+  await loadModels();
+}
+
+// ---------- UI wiring ----------
+
+document.getElementById('loginBtn').onclick = async () => {
+  console.log('Login button clicked');
+  const user = document.getElementById('username').value;
+  const pass = document.getElementById('password').value;
+  try {
+    await login(user, pass);
+  } catch (err) {
+    const errorEl = document.getElementById('loginError');
+    errorEl.textContent = 'Invalid credentials';
+    errorEl.classList.remove('hidden');
+  }
+};
+
+document.getElementById('logoutBtn').onclick = () => {
+  console.log('Logout button clicked');
+  localStorage.removeItem('api_key');
+  apiKey = '';
+  location.reload();
+};
+
+document.getElementById('kbRefresh').onclick = () => {
+  console.log('KB refresh clicked');
+  loadKBs();
+};
+document.getElementById('modelRefresh').onclick = () => {
+  console.log('Model refresh clicked');
+  loadModels();
+};
+document.getElementById('settingsRefresh').onclick = () => {
+  console.log('Settings refresh clicked');
+  loadSettings();
+};
+
+document.getElementById('kbForm').onsubmit = async (e) => {
+  e.preventDefault();
+  console.log('KB form submitted');
+  await saveKB(e.target);
+  e.target.reset();
+};
+
+document.getElementById('modelForm').onsubmit = async (e) => {
+  e.preventDefault();
+  console.log('Model form submitted');
+  await saveModel(e.target);
+  e.target.reset();
+};
+
+document.getElementById('settingsForm').onsubmit = async (e) => {
+  e.preventDefault();
+  console.log('Settings form submitted');
+  await saveSettings(e.target);
+};
+
+// nav handling
+Array.from(document.querySelectorAll('#mainNav button[data-view]')).forEach(btn => {
+  console.log('Setting up nav button:', btn.dataset.view);
+  btn.onclick = () => {
+    console.log('Nav button clicked:', btn.dataset.view);
+    const view = btn.dataset.view;
+    // Remove active class from all nav buttons
+    document.querySelectorAll('#mainNav button[data-view]').forEach(b => b.classList.remove('active'));
+    // Add active class to clicked button
+    btn.classList.add('active');
+    document.querySelectorAll('.content-section').forEach(div => div.classList.add('hidden'));
+    document.getElementById(view).classList.remove('hidden');
+    if(view==='kbView') loadKBs();
+    else if(view==='modelView') loadModels();
+    else if(view==='settingsView') loadSettings();
+  };
+});
+
+// Init
+if (apiKey) {
+  showDashboard();
+}
+
+function showDashboard() {
+  console.log('showDashboard called');
+  document.getElementById('loginSection').classList.add('hidden');
+  document.getElementById('dashboardSection').classList.remove('hidden');
+  document.getElementById('mainNav').classList.remove('hidden');
+  document.querySelector('#mainNav button[data-view="kbView"]').classList.add('active');
+  document.querySelectorAll('.content-section').forEach(div => div.classList.add('hidden'));
+  document.getElementById('kbView').classList.remove('hidden');
+  loadKBs();
+  loadModels();
+  loadSettings();
+}
+
+// ---------- Default settings ----------
+async function loadSettings() {
+  const res = await fetch(`${API_BASE}/knowledge-bases/settings/default`, setApiHeader());
+  const data = await res.json();
+  const form = document.getElementById('settingsForm');
+  Object.keys(data).forEach(key => {
+    if (form[key]) form[key].value = data[key];
+  });
+}
+
+async function saveSettings(formData) {
+  // Merge into knowledge_base_config default_settings via existing PUT endpoint? We'll reuse reload route for now
+  const payload = {
+    ...(formData.num_results.value && { num_results: Number(formData.num_results.value) }),
+    ...(formData.search_type.value && { search_type: formData.search_type.value }),
+    ...(formData.max_workers.value && { max_workers: Number(formData.max_workers.value) }),
+    system_prompt: formData.system_prompt.value
+  };
+  await fetch(`${API_BASE}/knowledge-bases/settings/default`, setApiHeader({ method: 'PUT', body: JSON.stringify(payload) }));
+  alert('Settings saved');
+}
+</script>
+</body>
+</html> 

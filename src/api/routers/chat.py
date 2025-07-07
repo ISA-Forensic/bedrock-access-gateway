@@ -449,11 +449,29 @@ async def chat_completions(
                         {"role": "system", "content": "You are a helpful assistant."},
                         {"role": "user", "content": "Hello!"},
                     ],
+                    "knowledge_base_id": "PLD6ZMTYSU",
+                    "user_name": "John Doe"
                 }
             ],
         ),
     ],
 ):
+    # Log all incoming requests to the completions endpoint
+    logger.info(f"=== CHAT COMPLETIONS REQUEST ===")
+    logger.info(f"Model: {chat_request.model}")
+    logger.info(f"Knowledge Base ID: {chat_request.knowledge_base_id}")
+    logger.info(f"User Name: {chat_request.user_name}")
+    logger.info(f"Stream: {chat_request.stream}")
+    logger.info(f"Temperature: {chat_request.temperature}")
+    logger.info(f"Max Tokens: {chat_request.max_tokens}")
+    logger.info(f"Top P: {chat_request.top_p}")
+    logger.info(f"Messages: {len(chat_request.messages)} messages")
+    for i, msg in enumerate(chat_request.messages):
+        content_str = str(msg.content)
+        content_preview = content_str[:200] + "..." if len(content_str) > 200 else content_str
+        logger.info(f"  [{i+1}] {msg.role}: {content_preview}")
+    logger.info(f"=== END REQUEST ===")
+    
     if chat_request.model.lower().startswith("gpt-"):
         chat_request.model = DEFAULT_MODEL
 
@@ -475,6 +493,18 @@ async def chat_completions_via_gateway(chat_request: ChatRequest) -> ChatRespons
     """
     Handle chat completions using the gateway pattern.
     """
+    # Log the incoming request for debugging
+    logger.info(f"Chat completions request received:")
+    logger.info(f"  Model: {chat_request.model}")
+    logger.info(f"  Knowledge Base ID: {chat_request.knowledge_base_id}")
+    logger.info(f"  User Name: {chat_request.user_name}")
+    logger.info(f"  Temperature: {chat_request.temperature}")
+    logger.info(f"  Max Tokens: {chat_request.max_tokens}")
+    logger.info(f"  Messages count: {len(chat_request.messages)}")
+    for i, msg in enumerate(chat_request.messages):
+        content_preview = str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
+        logger.info(f"    Message {i+1}: {msg.role} - {content_preview}")
+    
     try:
         # Convert OpenAI messages to ChatMessage objects
         conversation_history, system_prompt = convert_openai_messages_to_chat_messages(chat_request.messages)
@@ -504,64 +534,72 @@ async def chat_completions_via_gateway(chat_request: ChatRequest) -> ChatRespons
                 "topP": 0.9
             }
         
-        # Extract user info if available
-        user_name = chat_request.user or "unknown_user"
-        
-        # Check if knowledge base is enabled and should be used
-        if USE_KNOWLEDGE_BASE:
+        # Use provided knowledge_base_id and user_name from request if available
+        kb_input = chat_request.knowledge_base_id
+        user_name = chat_request.user_name
+
+        aws_kb_id: Optional[str] = None
+        project_name: Optional[str] = None
+
+        if kb_input:
+            kb_manager = get_kb_config_manager()
+            kb_cfg = kb_manager.get_knowledge_base_by_id(kb_input)
+            if kb_cfg and kb_cfg.get("knowledge_base_id"):
+                # Caller passed internal KB id -> map to AWS KB id
+                aws_kb_id = kb_cfg["knowledge_base_id"]
+                project_name = kb_cfg["id"]
+                logger.debug(
+                    f"Translated internal KB id '{kb_input}' -> AWS knowledge_base_id '{aws_kb_id}', project='{project_name}'"
+                )
+            else:
+                # Caller passed AWS KB id directly
+                aws_kb_id = kb_input
+                project_name = kb_input
+
+        # If knowledge base parameters are provided, use knowledge base chat
+        if aws_kb_id and user_name:
             try:
-                # Get knowledge base configuration
                 kb_manager = get_kb_config_manager()
-                enabled_kbs = kb_manager.get_enabled_knowledge_bases()
                 default_settings = kb_manager.get_default_settings()
-                
-                if enabled_kbs:
-                    # Use the first enabled knowledge base for now
-                    kb_config = enabled_kbs[0]
-                    
-                    result = chat_via_gateway_with_kb(
-                        query=latest_query,
-                        knowledge_base_id=kb_config.get("knowledge_base_id"),
-                        gateway_url=GATEWAY_URL,
-                        user_name=user_name,
-                        project_name="bedrock_gateway",
-                        system_prompt=system_prompt or default_settings.get("system_prompt"),
-                        conversation_history=conversation_history,
-                        inference_config=inference_config,
-                        model_id=chat_request.model,
-                        num_results=kb_config.get("num_results", default_settings.get("num_results", 5)),
-                        search_type=kb_config.get("search_type", default_settings.get("search_type", "HYBRID"))
-                    )
-                    
-                    # Generate message ID
-                    from uuid import uuid4
-                    message_id = f"chatcmpl-{str(uuid4())[:8]}"
-                    
-                    # Convert result to OpenAI format
-                    return convert_chat_result_to_openai_response(result, chat_request.model, message_id)
-                    
-            except Exception as kb_error:
-                logger.warning(f"Knowledge base error, falling back to regular chat: {str(kb_error)}")
+
+                result = chat_via_gateway_with_kb(
+                    query=latest_query,
+                    knowledge_base_id=aws_kb_id,
+                    gateway_url=GATEWAY_URL,
+                    user_name=user_name,
+                    project_name=project_name,
+                    system_prompt=system_prompt or default_settings.get("system_prompt"),
+                    conversation_history=conversation_history,
+                    inference_config=inference_config,
+                    model_id=chat_request.model,
+                    num_results=default_settings.get("num_results", 5),
+                    search_type=default_settings.get("search_type", "HYBRID")
+                )
+
+                from uuid import uuid4
+                message_id = f"chatcmpl-{str(uuid4())[:8]}"
+                return convert_chat_result_to_openai_response(result, chat_request.model, message_id)
+            except Exception as e:
+                logger.error(f"KB chat error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
         
-        # Fall back to regular chat without knowledge base
-        result = chat_via_gateway(
-            query=latest_query,
-            gateway_url=GATEWAY_URL,
-            user_name=user_name,
-            project_name="bedrock_gateway",  # You can make this configurable
-            system_prompt=system_prompt,
-            conversation_history=conversation_history,
-            inference_config=inference_config,
-            model_id=chat_request.model
-        )
-        
-        # Generate message ID
-        from uuid import uuid4
-        message_id = f"chatcmpl-{str(uuid4())[:8]}"
-        
-        # Convert result to OpenAI format
-        return convert_chat_result_to_openai_response(result, chat_request.model, message_id)
-        
+        # If no knowledge base parameters, use regular chat
+        else:
+            result = chat_via_gateway(
+                query=latest_query,
+                gateway_url=GATEWAY_URL,
+                user_name=user_name or "unknown_user",
+                project_name="default_project",
+                system_prompt=system_prompt,
+                conversation_history=conversation_history,
+                inference_config=inference_config,
+                model_id=chat_request.model
+            )
+
+            from uuid import uuid4
+            message_id = f"chatcmpl-{str(uuid4())[:8]}"
+            return convert_chat_result_to_openai_response(result, chat_request.model, message_id)
+
     except Exception as e:
         logger.error(f"Error in gateway chat completion: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Gateway chat error: {str(e)}")

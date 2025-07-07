@@ -18,26 +18,21 @@ router = APIRouter(
 )
 
 
-@router.get("/knowledge-bases", response_model=KnowledgeBases)
+@router.get("/knowledge-bases")
 async def list_knowledge_bases():
     """Get list of available knowledge bases from config file"""
     try:
         kb_manager = get_kb_config_manager()
         knowledge_bases_config = kb_manager.get_knowledge_bases()
         
-        kb_list = [
-            KnowledgeBase(
-                id=kb_config["id"],
-                name=kb_config.get("name"),
-                description=kb_config.get("description"),
-                knowledge_base_id=kb_config.get("knowledge_base_id"),
-                enabled=kb_config.get("enabled", True),
-                num_results=kb_config.get("num_results", 5),
-                search_type=kb_config.get("search_type", "HYBRID")
-            )
-            for kb_config in knowledge_bases_config
-        ]
-        return KnowledgeBases(data=kb_list)
+        kb_list = []
+        for kb_config in knowledge_bases_config:
+            # Always include knowledge_base_id field
+            kb_dict = dict(kb_config)
+            # Explicitly set knowledge_base_id - use existing value or None
+            kb_dict["knowledge_base_id"] = kb_config.get("knowledge_base_id", None)
+            kb_list.append(kb_dict)
+        return {"data": kb_list}
     except Exception as e:
         logger.error(f"Error listing knowledge bases: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -121,6 +121,8 @@ class ChatRequest(BaseModel):
     tools: Optional[List[Tool]] = None
     tool_choice: Union[str, object] = "auto"
     stop: Optional[Union[List[str], str]] = None
+    knowledge_base_id: Optional[str] = None
+    user_name: Optional[str] = None
 
 
 class Usage(BaseModel):

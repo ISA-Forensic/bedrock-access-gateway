@@ -18,35 +18,73 @@ router = APIRouter(
 )
 
 
-@router.get("/knowledge-bases")
+@router.get("/knowledge-bases", response_model=KnowledgeBases)
 async def list_knowledge_bases():
-    """Get list of available knowledge bases from config file"""
+    """Get list of available knowledge bases from database"""
+    logger.info("=== LIST KNOWLEDGE BASES REQUEST START ===")
     try:
+        logger.info("Getting knowledge base config manager...")
         kb_manager = get_kb_config_manager()
+        logger.info(f"KB Manager type: {type(kb_manager)}")
+        
+        logger.info("Fetching knowledge bases configuration...")
         knowledge_bases_config = kb_manager.get_knowledge_bases()
+        logger.info(f"Raw knowledge bases config: {knowledge_bases_config}")
+        logger.info(f"Number of knowledge bases found: {len(knowledge_bases_config)}")
         
         kb_list = []
-        for kb_config in knowledge_bases_config:
-            # Always include knowledge_base_id field
-            kb_dict = dict(kb_config)
-            # Explicitly set knowledge_base_id - use existing value or None
-            kb_dict["knowledge_base_id"] = kb_config.get("knowledge_base_id", None)
-            kb_list.append(kb_dict)
-        return {"data": kb_list}
+        for i, kb_config in enumerate(knowledge_bases_config):
+            logger.info(f"Processing KB {i+1}: {kb_config}")
+            try:
+                kb_obj = KnowledgeBase(
+                    id=kb_config["id"],
+                    name=kb_config.get("name"),
+                    description=kb_config.get("description"),
+                    knowledge_base_id=kb_config.get("knowledge_base_id"),
+                    enabled=kb_config.get("enabled", True),
+                    num_results=kb_config.get("num_results", 5),
+                    search_type=kb_config.get("search_type", "HYBRID")
+                )
+                logger.info(f"Created KnowledgeBase object {i+1}: {kb_obj.model_dump()}")
+                kb_list.append(kb_obj)
+            except Exception as kb_error:
+                logger.error(f"Error creating KnowledgeBase object {i+1}: {kb_error}")
+                logger.error(f"KB config that failed: {kb_config}")
+                import traceback
+                logger.error(f"KB creation traceback: {traceback.format_exc()}")
+                raise
+        
+        logger.info(f"Successfully created {len(kb_list)} KnowledgeBase objects")
+        result = KnowledgeBases(data=kb_list)
+        logger.info(f"Final result: {result.model_dump()}")
+        logger.info("=== LIST KNOWLEDGE BASES REQUEST SUCCESS ===")
+        return result
     except Exception as e:
-        logger.error(f"Error listing knowledge bases: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"=== LIST KNOWLEDGE BASES REQUEST FAILED ===")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error message: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch knowledge bases: {str(e)}")
 
 
 @router.get("/knowledge-bases/enabled", response_model=KnowledgeBases)
 async def list_enabled_knowledge_bases():
-    """Get list of enabled knowledge bases from config file"""
+    """Get list of enabled knowledge bases from database"""
+    logger.info("=== LIST ENABLED KNOWLEDGE BASES REQUEST START ===")
     try:
+        logger.info("Getting knowledge base config manager...")
         kb_manager = get_kb_config_manager()
-        enabled_kbs_config = kb_manager.get_enabled_knowledge_bases()
         
-        kb_list = [
-            KnowledgeBase(
+        logger.info("Fetching enabled knowledge bases configuration...")
+        enabled_kbs_config = kb_manager.get_enabled_knowledge_bases()
+        logger.info(f"Enabled knowledge bases config: {enabled_kbs_config}")
+        logger.info(f"Number of enabled knowledge bases: {len(enabled_kbs_config)}")
+        
+        kb_list = []
+        for i, kb_config in enumerate(enabled_kbs_config):
+            logger.info(f"Processing enabled KB {i+1}: {kb_config}")
+            kb_obj = KnowledgeBase(
                 id=kb_config["id"],
                 name=kb_config.get("name"),
                 description=kb_config.get("description"),
@@ -55,11 +93,18 @@ async def list_enabled_knowledge_bases():
                 num_results=kb_config.get("num_results", 5),
                 search_type=kb_config.get("search_type", "HYBRID")
             )
-            for kb_config in enabled_kbs_config
-        ]
-        return KnowledgeBases(data=kb_list)
+            logger.info(f"Created enabled KnowledgeBase object {i+1}: {kb_obj.model_dump()}")
+            kb_list.append(kb_obj)
+        
+        result = KnowledgeBases(data=kb_list)
+        logger.info(f"Enabled KBs result: {result.model_dump()}")
+        logger.info("=== LIST ENABLED KNOWLEDGE BASES REQUEST SUCCESS ===")
+        return result
     except Exception as e:
-        logger.error(f"Error listing enabled knowledge bases: {str(e)}")
+        logger.error(f"=== LIST ENABLED KNOWLEDGE BASES REQUEST FAILED ===")
+        logger.error(f"Error: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -96,20 +141,18 @@ async def get_knowledge_base(
 
 @router.get("/knowledge-bases/settings/default")
 async def get_default_settings() -> Dict:
-    """Get default settings for knowledge base operations"""
+    """Get default knowledge base settings"""
     try:
         kb_manager = get_kb_config_manager()
-        default_settings = kb_manager.get_default_settings()
-        
-        return default_settings
+        return kb_manager.get_default_settings()
     except Exception as e:
-        logger.error(f"Error getting default settings: {str(e)}")
+        logger.error(f"Error getting default settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/knowledge-bases/reload")
 async def reload_knowledge_base_config() -> Dict[str, str]:
-    """Reload the knowledge base configuration from file"""
+    """Reload the knowledge base configuration from database"""
     try:
         kb_manager = get_kb_config_manager()
         config = kb_manager.reload_config()
@@ -153,12 +196,14 @@ async def update_knowledge_base(kb_id: str, kb: KnowledgeBase):
 
 
 @router.delete("/knowledge-bases/{kb_id}")
-async def delete_knowledge_base(kb_id: str):
+async def delete_knowledge_base(kb_id: str) -> Dict[str, str]:
     """Delete a knowledge base"""
     kb_manager = get_kb_config_manager()
     try:
-        kb_manager.delete_knowledge_base(kb_id)
-        return {"status": "success"}
+        success = kb_manager.delete_knowledge_base(kb_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Knowledge base '{kb_id}' not found")
+        return {"message": f"Knowledge base '{kb_id}' deleted successfully"}
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
@@ -171,10 +216,8 @@ async def update_default_settings(settings: Dict = Body(...)):
     """Update default knowledge base settings"""
     kb_manager = get_kb_config_manager()
     try:
-        config = kb_manager.get_config()
-        config["default_settings"] = {**config.get("default_settings", {}), **settings}
-        kb_manager._save_config()  # type: ignore
-        return config["default_settings"]
+        updated_settings = kb_manager.update_default_settings(settings)
+        return updated_settings
     except Exception as e:
         logger.error(f"Error updating default settings: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 

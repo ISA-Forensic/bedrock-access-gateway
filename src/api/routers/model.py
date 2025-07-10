@@ -32,7 +32,10 @@ async def list_models():
             id=model_config["id"],
             owned_by=model_config.get("owned_by", "bedrock"),
             name=model_config.get("name"),
-            description=model_config.get("description")
+            description=model_config.get("description"),
+            max_tokens=model_config.get("max_tokens", 4000),
+            temperature=model_config.get("temperature", 0.7),
+            top_p=model_config.get("top_p", 0.9)
         )
         for model_config in models_from_config
     ]
@@ -57,7 +60,8 @@ async def get_model(
         id=model_id,
         owned_by=model_config.get("owned_by", "bedrock") if model_config else "bedrock",
         name=model_config.get("name") if model_config else None,
-        description=model_config.get("description") if model_config else None
+        description=model_config.get("description") if model_config else None,
+        max_tokens=model_config.get("max_tokens", 4000) if model_config else 4000
     )
 
 

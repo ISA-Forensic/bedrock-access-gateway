@@ -13,6 +13,9 @@ class Model(BaseModel):
     owned_by: str = "bedrock"
     name: Optional[str] = None
     description: Optional[str] = None
+    max_tokens: Optional[int] = 4000
+    temperature: Optional[float] = Field(default=0.7, le=2.0, ge=0.0)
+    top_p: Optional[float] = Field(default=0.9, le=1.0, ge=0.0)
 
 
 class Models(BaseModel):
@@ -30,7 +33,6 @@ class KnowledgeBase(BaseModel):
     enabled: bool = True
     num_results: Optional[int] = 5
     search_type: Optional[str] = "HYBRID"
-
 
 class KnowledgeBases(BaseModel):
     object: str = "list"
@@ -114,7 +116,7 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = Field(default=1.0, le=2.0, ge=0.0)
     top_p: Optional[float] = Field(default=1.0, le=1.0, ge=0.0)
     user: Optional[str] = None  # Not used
-    max_tokens: Optional[int] = 2048
+    max_tokens: Optional[int] = 16000
     max_completion_tokens: Optional[int] = None
     reasoning_effort: Optional[Literal["low", "medium", "high"]] = None
     n: Optional[int] = 1  # Not used

@@ -1,53 +1,83 @@
 import logging
 import os
+import requests
 import time
-import concurrent.futures
+from typing import Dict, List, Optional, Any, Tuple
 try:
-    from typing import Annotated, Any, Dict, List, Optional, Tuple
+    from typing import Annotated
 except ImportError:
     from typing_extensions import Annotated
-    from typing import Any, Dict, List, Optional, Tuple
 
-import requests
 from fastapi import APIRouter, Body, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from starlette.responses import StreamingResponse
 
 from api.auth import api_key_auth
-from api.models.bedrock import BedrockModel
-from api.schema import ChatRequest, ChatResponse, ChatStreamResponse, Error
-from api.setting import DEFAULT_MODEL, GATEWAY_URL, USE_GATEWAY, USE_KNOWLEDGE_BASE
 from api.kb_config_manager import get_kb_config_manager
+from api.config_manager import get_config_manager
+from api.models.bedrock import BedrockModel
 from api.retrieve_config import get_retrieve_config
+from api.schema import ChatRequest, ChatResponse
+from api.setting import DEFAULT_MODEL, USE_GATEWAY, GATEWAY_URL
 
 logger = logging.getLogger(__name__)
 
 
 class ChatMessage:
-    """
-    Simple chat message class to store role and content.
-    role -> 'system', 'user', or 'assistant'
-    content -> text from user or assistant
-    """
+    """Represents a chat message with role and content"""
     def __init__(self, role: str, content: str):
         self.role = role
         self.content = content
 
+    def to_dict(self):
+        return {"role": self.role, "content": self.content}
 
-def convert_messages_to_bedrock_format(messages: List[ChatMessage]) -> List[Dict[str, Any]]:
-    """
-    Convert ChatMessage objects to Bedrock's recognized format:
-    [
-      { "role": "user", "content": [ {"text": "Hello!"} ] },
-      ...
-    ]
-    """
-    bedrock_messages = []
-    for msg in messages:
-        bedrock_messages.append({
-            "role": msg.role,
-            "content": [{"text": msg.content}]
-        })
-    return bedrock_messages
+
+def get_model_max_tokens(model_id: str) -> int:
+    """Get max_tokens from model configuration, with fallback to default"""
+    try:
+        config_manager = get_config_manager()
+        model_config = config_manager.get_model_by_id(model_id)
+        if model_config and 'max_tokens' in model_config:
+            logger.info(f"Using max_tokens={model_config['max_tokens']} from model configuration for {model_id}")
+            return model_config['max_tokens']
+    except Exception as e:
+        logger.warning(f"Could not retrieve max_tokens for model {model_id}: {e}")
+    
+    # Fallback to default if model config not found or error occurred
+    logger.info(f"Using default max_tokens=4000 for model {model_id}")
+    return 4000
+
+
+def get_model_temperature(model_id: str) -> float:
+    """Get temperature from model configuration, with fallback to default"""
+    try:
+        config_manager = get_config_manager()
+        model_config = config_manager.get_model_by_id(model_id)
+        if model_config and 'temperature' in model_config:
+            logger.info(f"Using temperature={model_config['temperature']} from model configuration for {model_id}")
+            return model_config['temperature']
+    except Exception as e:
+        logger.warning(f"Could not retrieve temperature for model {model_id}: {e}")
+    
+    # Fallback to default if model config not found or error occurred
+    logger.info(f"Using default temperature=0.7 for model {model_id}")
+    return 0.7
+
+
+def get_model_top_p(model_id: str) -> float:
+    """Get top_p from model configuration, with fallback to default"""
+    try:
+        config_manager = get_config_manager()
+        model_config = config_manager.get_model_by_id(model_id)
+        if model_config and 'top_p' in model_config:
+            logger.info(f"Using top_p={model_config['top_p']} from model configuration for {model_id}")
+            return model_config['top_p']
+    except Exception as e:
+        logger.warning(f"Could not retrieve top_p for model {model_id}: {e}")
+    
+    # Fallback to default if model config not found or error occurred
+    logger.info(f"Using default top_p=0.9 for model {model_id}")
+    return 0.9
 
 
 def chat_via_gateway(
@@ -85,10 +115,14 @@ def chat_via_gateway(
     if conversation_history is None:
         conversation_history = []
     if inference_config is None:
+        # Get inference parameters from model configuration instead of hardcoded defaults
+        model_max_tokens = get_model_max_tokens(model_id)
+        model_temperature = get_model_temperature(model_id)
+        model_top_p = get_model_top_p(model_id)
         inference_config = {
-            "maxTokens": 8192,
-            "temperature": 0.7,
-            "topP": 0.9
+            "maxTokens": model_max_tokens,
+            "temperature": model_temperature,
+            "topP": model_top_p
         }
 
     # Step 1: Build the final list of messages
@@ -161,36 +195,6 @@ def chat_via_gateway(
         }
 
 
-def format_retrieved_documents(source_texts_pairs: List[Tuple[str, List[str]]], sources_metadata: List[str] = None) -> str:
-    """
-    Format retrieved documents into a structured XML format.
-    """
-    combined_context = "<documents>\n"
-    chunk_index = 0
-    
-    for doc_index, (source, texts) in enumerate(source_texts_pairs, start=1):
-        if not texts:
-            logger.warning(f"No texts found for source: {source}")
-            continue
-            
-        for i, chunk in enumerate(texts, start=1):
-            # Use specific source from metadata if available
-            specific_source = sources_metadata[chunk_index] if sources_metadata and chunk_index < len(sources_metadata) else source
-            # Extract filename from S3 path for cleaner display
-            source_filename = specific_source.split('/')[-1] if '/' in specific_source else specific_source
-            
-            combined_context += f"""  <document index="{chunk_index + 1}">
-    <source>{source_filename}</source>
-    <full_source_path>{specific_source}</full_source_path>
-    <content>{chunk}</content>
-  </document>
-"""
-            chunk_index += 1
-    
-    combined_context += "</documents>"
-    return combined_context
-
-
 def chat_via_gateway_with_kb(
     query: str,
     knowledge_base_id: str,
@@ -214,10 +218,14 @@ def chat_via_gateway_with_kb(
         conversation_history = []
 
     if inference_config is None:
+        # Get inference parameters from model configuration instead of hardcoded defaults
+        model_max_tokens = get_model_max_tokens(model_id)
+        model_temperature = get_model_temperature(model_id)
+        model_top_p = get_model_top_p(model_id)
         inference_config = {
-            "maxTokens": 4096,
-            "temperature": 0.7,
-            "topP": 0.9
+            "maxTokens": model_max_tokens,
+            "temperature": model_temperature,
+            "topP": model_top_p
         }
 
     if system_prompt is None:
@@ -346,86 +354,124 @@ Make your answer comprehensive and cite the relevant sources.
         }
 
     except Exception as e:
-        logger.error(f"Error during model invocation: {str(e)}")
+        elapsed_time = time.time() - start_time
+        logger.error(f"Error during chat with KB: {str(e)}")
         return {
             "response": f"An error occurred: {str(e)}",
             "source_documents": [],
             "sources": [],
             "input_tokens": 0,
             "output_tokens": 0,
-            "elapsed_time": time.time() - start_time
+            "elapsed_time": elapsed_time
         }
 
 
-def convert_openai_messages_to_chat_messages(openai_messages) -> Tuple[List[ChatMessage], str]:
+def format_retrieved_documents(responses: List[Tuple[str, List[str]]], sources_from_metadata: List[str] = None) -> str:
+    """Format the retrieved documents in a structured XML format."""
+    if sources_from_metadata is None:
+        sources_from_metadata = []
+    
+    documents_xml = "\n<retrieved_documents>\n"
+    
+    source_index = 0
+    for source, texts in responses:
+        for text in texts:
+            # Use the specific source path if available, otherwise use generic source name
+            if source_index < len(sources_from_metadata):
+                specific_source = sources_from_metadata[source_index]
+            else:
+                specific_source = source
+            
+            documents_xml += f"<document source=\"{specific_source}\">\n{text}\n</document>\n"
+            source_index += 1
+    
+    documents_xml += "</retrieved_documents>\n"
+    return documents_xml
+
+
+def convert_messages_to_bedrock_format(messages: List[ChatMessage]) -> List[Dict]:
+    """Convert ChatMessage objects to the format expected by Bedrock API"""
+    bedrock_messages = []
+    for message in messages:
+        bedrock_messages.append({
+            "role": message.role,
+            "content": [{"text": message.content}]
+        })
+    return bedrock_messages
+
+
+def convert_openai_messages_to_chat_messages(messages) -> Tuple[List[ChatMessage], Optional[str]]:
     """
-    Convert OpenAI format messages to ChatMessage objects.
-    Returns (conversation_history, system_prompt)
+    Convert OpenAI-style messages to ChatMessage objects.
+    
+    Returns:
+        Tuple of (conversation_history, system_prompt)
+        - conversation_history: List of ChatMessage objects (excludes system messages)
+        - system_prompt: Combined system prompt text or None if no system messages
     """
     conversation_history = []
-    system_prompt = None
+    system_prompts = []
     
-    for msg in openai_messages:
-        role = msg.role
-        # Handle content - it can be string or list
-        if isinstance(msg.content, str):
-            content = msg.content
-        elif isinstance(msg.content, list) and len(msg.content) > 0:
-            # Extract text from first text content item
-            for item in msg.content:
-                if hasattr(item, 'type') and item.type == 'text':
-                    content = item.text
-                    break
-            else:
-                content = str(msg.content)  # Fallback
+    for message in messages:
+        if message.role == "system":
+            system_prompts.append(message.content)
         else:
-            content = str(msg.content)
-        
-        if role == "system":
-            system_prompt = content
-        else:
-            conversation_history.append(ChatMessage(role, content))
+            # Handle content that might be string or list
+            content = message.content
+            if isinstance(content, list):
+                # For multimodal content, just take the text parts for now
+                text_content = ""
+                for item in content:
+                    if hasattr(item, 'text'):
+                        text_content += item.text
+                    elif isinstance(item, dict) and 'text' in item:
+                        text_content += item['text']
+                content = text_content
+            
+            conversation_history.append(ChatMessage(
+                role=message.role,
+                content=str(content)
+            ))
+    
+    # Combine system prompts if multiple exist
+    system_prompt = "\n".join(system_prompts) if system_prompts else None
     
     return conversation_history, system_prompt
 
 
-def convert_chat_result_to_openai_response(
-    chat_result: Dict[str, Any], 
-    model: str, 
-    message_id: str
-) -> ChatResponse:
-    """
-    Convert the gateway chat result to OpenAI format response.
-    """
-    from api.schema import ChatResponse, ChatResponseMessage, Choice, Usage
+def convert_chat_result_to_openai_response(result: Dict[str, Any], model: str, message_id: str) -> ChatResponse:
+    """Convert the gateway chat result to OpenAI-compatible ChatResponse"""
+    from api.schema import ChatResponseMessage, Choice, Usage
     
-    # Create the response message
-    response_message = ChatResponseMessage(
+    message = ChatResponseMessage(
         role="assistant",
-        content=chat_result["response"]
+        content=result["response"]
     )
     
-    # Create the choice
     choice = Choice(
         index=0,
-        message=response_message,
+        message=message,
         finish_reason="stop"
     )
     
-    # Create usage info
     usage = Usage(
-        prompt_tokens=chat_result["input_tokens"],
-        completion_tokens=chat_result["output_tokens"],
-        total_tokens=chat_result["input_tokens"] + chat_result["output_tokens"]
+        prompt_tokens=result.get("input_tokens", 0),
+        completion_tokens=result.get("output_tokens", 0),
+        total_tokens=result.get("input_tokens", 0) + result.get("output_tokens", 0)
     )
     
-    # Create the full response
-    return ChatResponse(
+    response = ChatResponse(
         id=message_id,
         model=model,
         choices=[choice],
         usage=usage
     )
+    
+    # Set additional fields that might be expected
+    response.object = "chat.completion"
+    response.system_fingerprint = "fp"
+    
+    return response
 
 
 router = APIRouter(
@@ -517,22 +563,30 @@ async def chat_completions_via_gateway(chat_request: ChatRequest) -> ChatRespons
         # Remove the latest query from history since it will be added separately
         conversation_history = conversation_history[:-1]
         
-        # Build inference config from request parameters
+        # Build inference config from request parameters, using model configuration as defaults
+        model_max_tokens = get_model_max_tokens(chat_request.model)
+        model_temperature = get_model_temperature(chat_request.model)
+        model_top_p = get_model_top_p(chat_request.model)
         inference_config = {}
-        if chat_request.max_tokens:
-            inference_config["maxTokens"] = chat_request.max_tokens
+        
+        # Use model's max_tokens as base, allow request to specify lower value
+        max_tokens = model_max_tokens
+        if chat_request.max_tokens is not None and chat_request.max_tokens < model_max_tokens:
+            max_tokens = chat_request.max_tokens
+            logger.info(f"Using request max_tokens={max_tokens} (smaller than model limit {model_max_tokens})")
+        
+        inference_config["maxTokens"] = max_tokens
+        
+        # Use request values if provided, otherwise use model defaults
         if chat_request.temperature is not None:
             inference_config["temperature"] = chat_request.temperature
+        else:
+            inference_config["temperature"] = model_temperature
+            
         if chat_request.top_p is not None:
             inference_config["topP"] = chat_request.top_p
-            
-        # Set defaults if not provided
-        if not inference_config:
-            inference_config = {
-                "maxTokens": 8192,
-                "temperature": 0.7,
-                "topP": 0.9
-            }
+        else:
+            inference_config["topP"] = model_top_p
         
         # Use provided knowledge_base_id and user_name from request if available
         kb_input = chat_request.knowledge_base_id
@@ -552,9 +606,26 @@ async def chat_completions_via_gateway(chat_request: ChatRequest) -> ChatRespons
                     f"Translated internal KB id '{kb_input}' -> AWS knowledge_base_id '{aws_kb_id}', project='{project_name}'"
                 )
             else:
-                # Caller passed AWS KB id directly
-                aws_kb_id = kb_input
-                project_name = kb_input
+                # First lookup failed, try to find by AWS knowledge_base_id
+                all_kbs = kb_manager.get_knowledge_bases()
+                kb_cfg = None
+                for kb in all_kbs:
+                    if kb.get("knowledge_base_id") == kb_input:
+                        kb_cfg = kb
+                        break
+                
+                if kb_cfg:
+                    # Found KB by AWS knowledge_base_id
+                    aws_kb_id = kb_cfg["knowledge_base_id"]
+                    project_name = kb_cfg["id"]
+                    logger.debug(
+                        f"Found KB by AWS knowledge_base_id '{kb_input}' -> internal id '{project_name}'"
+                    )
+                else:
+                    # Caller passed AWS KB id directly (not found in our config)
+                    aws_kb_id = kb_input
+                    project_name = kb_input
+                    logger.debug(f"Using direct AWS KB id '{kb_input}' (not found in config)")
 
         # If knowledge base parameters are provided, use knowledge base chat
         if aws_kb_id and user_name:
@@ -562,18 +633,34 @@ async def chat_completions_via_gateway(chat_request: ChatRequest) -> ChatRespons
                 kb_manager = get_kb_config_manager()
                 default_settings = kb_manager.get_default_settings()
 
+                # Use specific knowledge base configuration if available, otherwise fall back to defaults
+                if kb_cfg:
+                    # Use the specific knowledge base's configuration
+                    kb_num_results = kb_cfg.get("num_results", default_settings.get("num_results", 5))
+                    kb_search_type = kb_cfg.get("search_type", default_settings.get("search_type", "HYBRID"))
+                    kb_system_prompt = system_prompt or default_settings.get("system_prompt")
+                    
+                    logger.info(f"Using KB-specific config: num_results={kb_num_results}, search_type={kb_search_type}")
+                else:
+                    # Fall back to default settings if KB config not found
+                    kb_num_results = default_settings.get("num_results", 5)
+                    kb_search_type = default_settings.get("search_type", "HYBRID")
+                    kb_system_prompt = system_prompt or default_settings.get("system_prompt")
+                    
+                    logger.info(f"Using default config: num_results={kb_num_results}, search_type={kb_search_type}")
+
                 result = chat_via_gateway_with_kb(
                     query=latest_query,
                     knowledge_base_id=aws_kb_id,
                     gateway_url=GATEWAY_URL,
                     user_name=user_name,
                     project_name=project_name,
-                    system_prompt=system_prompt or default_settings.get("system_prompt"),
+                    system_prompt=kb_system_prompt,
                     conversation_history=conversation_history,
                     inference_config=inference_config,
                     model_id=chat_request.model,
-                    num_results=default_settings.get("num_results", 5),
-                    search_type=default_settings.get("search_type", "HYBRID")
+                    num_results=kb_num_results,
+                    search_type=kb_search_type
                 )
 
                 from uuid import uuid4
@@ -582,14 +669,14 @@ async def chat_completions_via_gateway(chat_request: ChatRequest) -> ChatRespons
             except Exception as e:
                 logger.error(f"KB chat error: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
-        
-        # If no knowledge base parameters, use regular chat
-        else:
+
+        # Otherwise, use regular chat without knowledge base
+        try:
             result = chat_via_gateway(
                 query=latest_query,
                 gateway_url=GATEWAY_URL,
                 user_name=user_name or "unknown_user",
-                project_name="default_project",
+                project_name="chat_api",
                 system_prompt=system_prompt,
                 conversation_history=conversation_history,
                 inference_config=inference_config,
@@ -599,7 +686,12 @@ async def chat_completions_via_gateway(chat_request: ChatRequest) -> ChatRespons
             from uuid import uuid4
             message_id = f"chatcmpl-{str(uuid4())[:8]}"
             return convert_chat_result_to_openai_response(result, chat_request.model, message_id)
+        except Exception as e:
+            logger.error(f"Regular chat error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error in gateway chat completion: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Gateway chat error: {str(e)}")
+        logger.error(f"Unexpected error in chat completions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

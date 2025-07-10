@@ -72,6 +72,7 @@
         <button data-view="kbView"><i class="fas fa-database"></i> Knowledge Bases</button>
         <button data-view="modelView"><i class="fas fa-robot"></i> Models</button>
         <button data-view="settingsView"><i class="fas fa-cog"></i> KB Default Settings</button>
+
         <button id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</button>
       </nav>
     </div>
@@ -144,6 +145,9 @@
                 <label>Name <input name="name" placeholder="Display name" /></label>
                 <label>Description <input name="description" placeholder="Model description" /></label>
                 <label>Owned By <input name="owned_by" placeholder="bedrock" /></label>
+                <label>Max Tokens <input type="number" name="max_tokens" min="1" placeholder="4000" /></label>
+                <label>Temperature <input type="number" name="temperature" min="0" max="2" step="0.1" placeholder="0.7" /></label>
+                <label>Top P <input type="number" name="top_p" min="0" max="1" step="0.1" placeholder="0.9" /></label>
                 <label>Modalities <input name="modalities" placeholder="TEXT,IMAGE" /></label>
                 <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save</button>
               </form>
@@ -153,7 +157,7 @@
           <div style="margin-top: 2rem;">
             <h4 class="form-title">Existing Models</h4>
             <table id="modelTable">
-              <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Owner</th><th>Modalities</th><th>Actions</th></tr></thead>
+              <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Owner</th><th>Max Tokens</th><th>Temperature</th><th>Top P</th><th>Modalities</th><th>Actions</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -186,7 +190,56 @@
 
 <script>
 const API_BASE = '/api/v1';
-let apiKey = localStorage.getItem('api_key') || '';
+let apiKey = '';
+
+// Session management functions
+function getSession() {
+  const sessionData = sessionStorage.getItem('session_data');
+  if (!sessionData) return null;
+  
+  try {
+    return JSON.parse(sessionData);
+  } catch (e) {
+    console.error('Error parsing session data:', e);
+    clearSession();
+    return null;
+  }
+}
+
+
+
+function createSession(api_key) {
+  const session = {
+    api_key: api_key,
+    loginTime: Date.now()
+  };
+  sessionStorage.setItem('session_data', JSON.stringify(session));
+  apiKey = api_key;
+}
+
+function clearSession() {
+  sessionStorage.removeItem('session_data');
+  apiKey = '';
+}
+
+
+
+function forceLogout() {
+  clearSession();
+  
+  // Show login screen
+  document.getElementById('loginSection').classList.remove('hidden');
+  document.getElementById('dashboardSection').classList.add('hidden');
+  document.getElementById('mainNav').classList.add('hidden');
+  
+  // Clear any error messages and reset form
+  const errorEl = document.getElementById('loginError');
+  errorEl.classList.add('hidden');
+  document.getElementById('username').value = '';
+  document.getElementById('password').value = '';
+  
+  console.log('User has been logged out due to session expiry');
+}
 
 function setApiHeader(options={}) {
   options.headers = options.headers || {};
@@ -196,15 +249,16 @@ function setApiHeader(options={}) {
 }
 
 async function login(username, password) {
-  const res = await fetch(`${API_BASE}/auth/login`, setApiHeader({
+  const res = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password })
-  }));
+  });
   if (!res.ok) throw new Error('Login failed');
   const data = await res.json();
-  apiKey = data.api_key;
-  localStorage.setItem('api_key', apiKey);
-  console.log('Login successful, apiKey set, calling showDashboard');
+  
+  createSession(data.api_key);
+  console.log('Login successful, session created, calling showDashboard');
   showDashboard();
 }
 
@@ -265,7 +319,7 @@ async function loadModels() {
   data.data.forEach(m => {
     const tr = document.createElement('tr');
     const mods = Array.isArray(m.modalities) ? m.modalities.join(',') : (m.modalities || '');
-    tr.innerHTML = `<td>${m.id}</td><td>${m.name || ''}</td><td>${m.description || ''}</td><td>${m.owned_by}</td><td>${mods}</td>`;
+    tr.innerHTML = `<td>${m.id}</td><td>${m.name || ''}</td><td>${m.description || ''}</td><td>${m.owned_by}</td><td>${m.max_tokens || ''}</td><td>${m.temperature || ''}</td><td>${m.top_p || ''}</td><td>${mods}</td>`;
     const actionTd = document.createElement('td');
     const delBtn = document.createElement('button');
     delBtn.innerHTML = '<i class="fas fa-trash"></i>';
@@ -285,6 +339,9 @@ async function saveModel(formData) {
     name: formData.name.value,
     description: formData.description.value,
     owned_by: formData.owned_by.value || 'bedrock',
+    ...(formData.max_tokens.value && { max_tokens: Number(formData.max_tokens.value) }),
+    ...(formData.temperature.value && { temperature: Number(formData.temperature.value) }),
+    ...(formData.top_p.value && { top_p: Number(formData.top_p.value) }),
     modalities: formData.modalities.value ? formData.modalities.value.split(',').map(m => m.trim()) : []
   };
   const existsRes = await fetch(`${API_BASE}/models/${id}`, setApiHeader());
@@ -317,9 +374,8 @@ document.getElementById('loginBtn').onclick = async () => {
 
 document.getElementById('logoutBtn').onclick = () => {
   console.log('Logout button clicked');
-  localStorage.removeItem('api_key');
-  apiKey = '';
-  location.reload();
+  clearSession();
+  forceLogout();
 };
 
 document.getElementById('kbRefresh').onclick = () => {
@@ -373,10 +429,24 @@ Array.from(document.querySelectorAll('#mainNav button[data-view]')).forEach(btn 
   };
 });
 
-// Init
-if (apiKey) {
-  showDashboard();
+
+
+// Initialize session on page load
+function initializeSession() {
+  const session = getSession();
+  if (session) {
+    apiKey = session.api_key;
+    showDashboard();
+  } else {
+    // No valid session, show login screen
+    document.getElementById('loginSection').classList.remove('hidden');
+    document.getElementById('dashboardSection').classList.add('hidden');
+    document.getElementById('mainNav').classList.add('hidden');
+  }
 }
+
+// Initialize on page load
+initializeSession();
 
 function showDashboard() {
   console.log('showDashboard called');
@@ -402,7 +472,6 @@ async function loadSettings() {
 }
 
 async function saveSettings(formData) {
-  // Merge into knowledge_base_config default_settings via existing PUT endpoint? We'll reuse reload route for now
   const payload = {
     ...(formData.num_results.value && { num_results: Number(formData.num_results.value) }),
     ...(formData.search_type.value && { search_type: formData.search_type.value }),

@@ -1,15 +1,5 @@
 {
-  "knowledge_bases": [
-    {
-      "id": "wealthstone",
-      "name": "Wealthstone",
-      "knowledge_base_id": "PLD6ZMTYSU",
-      "num_results": 5,
-      "search_type": "HYBRID",
-      "max_workers": 3,
-      "enabled": true
-    }
-  ],
+  "knowledge_bases": [],
   "default_settings": {
     "num_results": 5,
     "search_type": "HYBRID",

@@ -149,6 +149,21 @@ class BedrockModel(BaseChatModel):
                 detail=error,
             )
 
+    def _get_model_max_tokens(self, model_id: str) -> int:
+        """Get max_tokens from model configuration, with fallback to default"""
+        try:
+            config_manager = get_config_manager()
+            model_config = config_manager.get_model_by_id(model_id)
+            if model_config and 'max_tokens' in model_config:
+                logger.info(f"Using max_tokens={model_config['max_tokens']} from model configuration for {model_id}")
+                return model_config['max_tokens']
+        except Exception as e:
+            logger.warning(f"Could not retrieve max_tokens for model {model_id}: {e}")
+        
+        # Fallback to default if model config not found or error occurred
+        logger.info(f"Using default max_tokens=4000 for model {model_id}")
+        return 4000
+
     async def _invoke_bedrock(self, chat_request: ChatRequest, stream=False):
         """Common logic for invoke bedrock models"""
         if DEBUG:
@@ -390,10 +405,20 @@ class BedrockModel(BaseChatModel):
         messages = self._parse_messages(chat_request)
         system_prompts = self._parse_system_prompts(chat_request)
 
+        # Get max_tokens from model configuration instead of request
+        model_max_tokens = self._get_model_max_tokens(chat_request.model)
+        
+        # Use the smaller of: model's max_tokens OR request's max_tokens (if provided)
+        # This allows users to request fewer tokens but not exceed the model's limit
+        max_tokens = model_max_tokens
+        if chat_request.max_tokens is not None and chat_request.max_tokens < model_max_tokens:
+            max_tokens = chat_request.max_tokens
+            logger.info(f"Using request max_tokens={max_tokens} (smaller than model limit {model_max_tokens})")
+
         # Base inference parameters.
         inference_config = {
             "temperature": chat_request.temperature,
-            "maxTokens": chat_request.max_tokens,
+            "maxTokens": max_tokens,
             "topP": chat_request.top_p,
         }
 
@@ -413,11 +438,16 @@ class BedrockModel(BaseChatModel):
             # From OpenAI api, the max_token is not supported in reasoning mode
             # Use max_completion_tokens if provided.
 
-            max_tokens = (
-                chat_request.max_completion_tokens if chat_request.max_completion_tokens else chat_request.max_tokens
+            reasoning_max_tokens = (
+                chat_request.max_completion_tokens if chat_request.max_completion_tokens else max_tokens
             )
-            budget_tokens = self._calc_budget_tokens(max_tokens, chat_request.reasoning_effort)
-            inference_config["maxTokens"] = max_tokens
+            # Ensure reasoning_max_tokens doesn't exceed model's limit
+            if reasoning_max_tokens > model_max_tokens:
+                reasoning_max_tokens = model_max_tokens
+                logger.info(f"Reasoning max_tokens capped to model limit: {model_max_tokens}")
+                
+            budget_tokens = self._calc_budget_tokens(reasoning_max_tokens, chat_request.reasoning_effort)
+            inference_config["maxTokens"] = reasoning_max_tokens
             # unset topP - Not supported
             inference_config.pop("topP")
 

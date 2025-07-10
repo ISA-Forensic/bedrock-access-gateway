@@ -1,78 +1,55 @@
-import json
 import logging
-import os
-from pathlib import Path
 from typing import Dict, List, Optional
 
-from api.setting import MODELS_CONFIG_PATH
+from api.database_models import get_models_database
 
 logger = logging.getLogger(__name__)
 
 class ConfigManager:
-    """Manages model configuration from JSON file"""
+    """Manages model configuration using SQLite database"""
     
-    def __init__(self, config_path: str = None):
-        if config_path is None:
-            # Use environment variable if set, otherwise default to models_config.json in the same directory
-            if MODELS_CONFIG_PATH:
-                config_path = MODELS_CONFIG_PATH
-            else:
-                # Default to models_config.json in the same directory as this file
-                config_path = Path(__file__).parent / "models_config.json"
-        self.config_path = Path(config_path)
+    def __init__(self):
+        self.models_db = get_models_database()
         
-        self._config_cache = None
-        self._load_config()
+        # Auto-migrate from JSON if database is empty
+        self._auto_migrate()
     
-    def _load_config(self) -> Dict:
-        """Load configuration from JSON file"""
+    def _auto_migrate(self):
+        """Automatically migrate from JSON if database is empty"""
         try:
-            if not self.config_path.exists():
-                logger.warning(f"Config file not found at {self.config_path}")
-                return {"models": [], "embedding_models": []}
-            
-            with open(self.config_path, 'r') as f:
-                self._config_cache = json.load(f)
-                logger.info(f"Loaded model config from {self.config_path}")
-                return self._config_cache
+            # Check if database has any models
+            if not self.models_db.get_all_models():
+                logger.info("Database is empty, attempting migration from JSON...")
+                self.models_db.migrate_from_json()
         except Exception as e:
-            logger.error(f"Error loading config file: {e}")
-            return {"models": [], "embedding_models": []}
+            logger.warning(f"Auto-migration failed: {e}")
     
     def get_config(self) -> Dict:
-        """Get the current configuration, reloading if cache is empty"""
-        if self._config_cache is None:
-            self._load_config()
-        return self._config_cache or {"models": [], "embedding_models": []}
+        """Get the current configuration in JSON-compatible format"""
+        return {
+            "models": self.get_chat_models(),
+            "embedding_models": self.get_embedding_models()
+        }
     
     def reload_config(self) -> Dict:
-        """Force reload the configuration from file"""
-        self._config_cache = None
-        return self._load_config()
+        """Force reload the configuration (for SQLite, this just returns current data)"""
+        return self.get_config()
     
     def get_chat_models(self) -> List[Dict]:
         """Get list of chat models"""
-        config = self.get_config()
-        return config.get("models", [])
+        return self.models_db.get_chat_models()
     
     def get_embedding_models(self) -> List[Dict]:
         """Get list of embedding models"""
-        config = self.get_config()
-        return config.get("embedding_models", [])
+        return self.models_db.get_embedding_models()
     
     def get_all_models(self) -> List[Dict]:
         """Get all models (chat + embedding)"""
-        chat_models = self.get_chat_models()
-        embedding_models = self.get_embedding_models()
-        return chat_models + embedding_models
+        return self.models_db.get_all_models()
     
     def get_model_by_id(self, model_id: str) -> Optional[Dict]:
         """Get a specific model by ID"""
-        all_models = self.get_all_models()
-        for model in all_models:
-            if model.get("id") == model_id:
-                return model
-        return None
+        return self.models_db.get_model_by_id(model_id)
     
     def is_model_supported(self, model_id: str) -> bool:
         """Check if a model ID is supported"""
@@ -83,52 +60,33 @@ class ConfigManager:
         all_models = self.get_all_models()
         return [model.get("id") for model in all_models if model.get("id")]
 
-    def _save_config(self):
-        """Persist the current cache to disk."""
-        if self._config_cache is None:
-            return
-        try:
-            with open(self.config_path, "w") as f:
-                json.dump(self._config_cache, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving model config: {e}")
-
-    # ----- CRUD for models -----
+    # CRUD operations
     def add_model(self, model: Dict) -> Dict:
-        """Add a chat or embedding model."""
-        config = self.get_config()
-        all_models = self.get_all_models()
-        if any(m.get("id") == model.get("id") for m in all_models):
-            raise ValueError(f"Model with id '{model.get('id')}' already exists")
-        # Decide list based on whether id contains ':embedding' maybe? Simpler: use models list by default.
-        config.setdefault("models", []).append(model)
-        self._save_config()
-        return model
+        """Add a new model (auto-detects if it's chat or embedding)"""
+        # For now, assume it's a chat model unless specified
+        # You could add logic to detect based on model ID or other criteria
+        return self.models_db.add_chat_model(model)
+    
+    def add_chat_model(self, model: Dict) -> Dict:
+        """Add a new chat model"""
+        return self.models_db.add_chat_model(model)
+    
+    def add_embedding_model(self, model: Dict) -> Dict:
+        """Add a new embedding model"""
+        return self.models_db.add_embedding_model(model)
 
     def update_model(self, model_id: str, model: Dict) -> Dict:
-        config = self.get_config()
-        for key in ("models", "embedding_models"):
-            models_list = config.get(key, [])
-            for idx, existing in enumerate(models_list):
-                if existing.get("id") == model_id:
-                    models_list[idx] = {**existing, **model, "id": model_id}
-                    self._save_config()
-                    return models_list[idx]
-        raise ValueError(f"Model '{model_id}' not found")
+        """Update an existing model"""
+        # Try to update as chat model first
+        try:
+            return self.models_db.update_chat_model(model_id, model)
+        except Exception:
+            # If that fails, try as embedding model
+            return self.models_db.update_embedding_model(model_id, model)
 
-    def delete_model(self, model_id: str):
-        config = self.get_config()
-        changed = False
-        for key in ("models", "embedding_models"):
-            models_list = config.get(key, [])
-            new_list = [m for m in models_list if m.get("id") != model_id]
-            if len(new_list) != len(models_list):
-                config[key] = new_list
-                changed = True
-        if not changed:
-            raise ValueError(f"Model '{model_id}' not found")
-        self._save_config()
-
+    def delete_model(self, model_id: str) -> bool:
+        """Delete a model"""
+        return self.models_db.delete_model(model_id)
 
 # Global instance - will be initialized when first imported
 config_manager = None
